@@ -9,7 +9,7 @@ namespace Problem
         {
             // Apply thresholding - faster than Strassen in small matrices
             // could be increaased to 128 if we apply Winograd but i have difficulties applying it
-            if (N <= 32)
+            if (N <= 64)
             {
                 return StandardMatrixMultiply(M1, M2, N);
             }
