@@ -7,13 +7,14 @@ namespace Problem
     {
         static public int[,] MatrixMultiply(int[,] M1, int[,] M2, int N)
         {
-            // Apply thresholding
+            // Apply thresholding - faster than Strassen in small matrices
+            // could be increaased to 128 if we apply Winograd but i have difficulties applying it
             if (N <= 32)
             {
                 return StandardMatrixMultiply(M1, M2, N);
             }
-
-            // Block partitioning
+            /*                                    DIVIDE           */
+            // Partitioning to submatices 
             int[,] A11 = GetSubmatrix(M1, 0, 0, N / 2);
             int[,] A12 = GetSubmatrix(M1, 0, N / 2, N / 2);
             int[,] A21 = GetSubmatrix(M1, N / 2, 0, N / 2);
@@ -24,7 +25,7 @@ namespace Problem
             int[,] B21 = GetSubmatrix(M2, N / 2, 0, N / 2);
             int[,] B22 = GetSubmatrix(M2, N / 2, N / 2, N / 2);
 
-            // Compute intermediate matrices
+            // Calculate intermediate matrices
             int[,] S1 = Subtract(B12, B22, N / 2);
             int[,] S2 = Add(A11, A12, N / 2);
             int[,] S3 = Add(A21, A22, N / 2);
@@ -36,16 +37,18 @@ namespace Problem
             int[,] S9 = Subtract(A11, A21, N / 2);
             int[,] S10 = Add(B11, B12, N / 2);
 
-            // Compute submatrix products using tasks
+            /*                                       CONQUER                     */
+
+            // Getting submatrix using parallel processing
             var tasks = new[] {
-        Task.Run(() => MatrixMultiply(A11, S1, N / 2)),
-        Task.Run(() => MatrixMultiply(S2, B22, N / 2)),
-        Task.Run(() => MatrixMultiply(S3, B11, N / 2)),
-        Task.Run(() => MatrixMultiply(A22, S4, N / 2)),
-        Task.Run(() => MatrixMultiply(S5, S6, N / 2)),
-        Task.Run(() => MatrixMultiply(S7, S8, N / 2)),
-        Task.Run(() => MatrixMultiply(S9, S10, N / 2))
-    };
+                Task.Run(() => MatrixMultiply(A11, S1, N / 2)),
+                Task.Run(() => MatrixMultiply(S2, B22, N / 2)),
+                Task.Run(() => MatrixMultiply(S3, B11, N / 2)),
+                Task.Run(() => MatrixMultiply(A22, S4, N / 2)),
+                Task.Run(() => MatrixMultiply(S5, S6, N / 2)),
+                Task.Run(() => MatrixMultiply(S7, S8, N / 2)),
+                Task.Run(() => MatrixMultiply(S9, S10, N / 2))
+            };
 
             Task.WhenAll(tasks);
 
@@ -58,7 +61,9 @@ namespace Problem
             int[,] P6 = tasks[5].Result;
             int[,] P7 = tasks[6].Result;
 
-            // Compute output matrix
+            /*                                     COMBINE                     */
+
+            // Generate output matrix
             int[,] C11 = Add(Subtract(Add(P5, P4, N / 2), P2, N / 2), P6, N / 2);
             int[,] C12 = Add(P1, P2, N / 2);
             int[,] C21 = Add(P3, P4, N / 2);
@@ -74,6 +79,8 @@ namespace Problem
             return C;
         }
 
+
+        // Normal O(N^3), Faster in small matrices
         static private int[,] StandardMatrixMultiply(int[,] M1, int[,] M2, int N)
         {
             int[,] C = new int[N, N];
@@ -102,61 +109,66 @@ namespace Problem
             return C;
         }
 
+        /*                   Helper Functions                    */
 
+        // calculating a smaller matrix for divide step
         static private int[,] GetSubmatrix(int[,] M, int row, int col, int size)
         {
             int[,] submatrix = new int[size, size];
 
-            for (int i = 0; i < size; i++)
+            Parallel.For(0, size, i =>
             {
                 for (int j = 0; j < size; j++)
                 {
                     submatrix[i, j] = M[row + i, col + j];
                 }
-            }
+            });
 
-        return submatrix;
+            return submatrix;
         }
 
+        // Calculate matrix for combine step
         static private void SetSubmatrix(int[,] M, int row, int col, int[,] submatrix)
         {
             int size = submatrix.GetLength(0);
 
-            for (int i = 0; i < size; i++)
+            Parallel.For(0, size, i =>
             {
                 for (int j = 0; j < size; j++)
                 {
                     M[row + i, col + j] = submatrix[i, j];
                 }
-            }
+            });
         }
 
+        // Add 2 matrices, still faster than multiplication
         static private int[,] Add(int[,] M1, int[,] M2, int N)
         {
             int[,] result = new int[N, N];
 
-            for (int i = 0; i < N; i++)
+            Parallel.For(0, N, i =>
             {
                 for (int j = 0; j < N; j++)
                 {
                     result[i, j] = M1[i, j] + M2[i, j];
                 }
-            }
+            });
 
             return result;
         }
 
+        // Subtract 2 matrices, still faster than multiplication
         static private int[,] Subtract(int[,] M1, int[,] M2, int N)
         {
             int[,] result = new int[N, N];
 
-            for (int i = 0; i < N; i++)
+            Parallel.For(0, N, i =>
             {
                 for (int j = 0; j < N; j++)
                 {
                     result[i, j] = M1[i, j] - M2[i, j];
                 }
-            }
+            });
 
             return result;
         }
