@@ -80,28 +80,35 @@ namespace Problem
 
 
         // Normal O(N^3), Faster in small matrices
-        static private int[,] StandardMatrixMultiply(int[,] M1, int[,] M2, int N)
+        static unsafe private int[,] StandardMatrixMultiply(int[,] M1, int[,] M2, int N)
         {
             int[,] C = new int[N, N];
 
-            for (int i = 0; i < N; i++)
+            fixed (int* pM1 = M1, pM2 = M2, pC = C)
             {
-                for (int j = 0; j < N; j++)
+                int* pRowM1 = pM1, pRowM2 = pM2, pRowC = pC;
+
+                for (int i = 0; i < N; i++, pRowM1 += N, pRowC += N)
                 {
-                    int sum = 0;
-                    int k = 0;
-
-                    for (; k < N - 1; k += 2)
+                    for (int j = 0; j < N; j++, pRowM2++)
                     {
-                        sum += M1[i, k] * M2[k, j] + M1[i, k + 1] * M2[k + 1, j];
+                        int sum = 0;
+                        int k = 0;
+
+                        for (; k < N - 1; k += 2)
+                        {
+                            sum += pRowM1[k] * pRowM2[k * N] + pRowM1[k + 1] * pRowM2[(k + 1) * N];
+                        }
+
+                        for (; k < N; k++)
+                        {
+                            sum += pRowM1[k] * pRowM2[k * N];
+                        }
+
+                        pRowC[j] = sum;
                     }
 
-                    for (; k < N; k++)
-                    {
-                        sum += M1[i, k] * M2[k, j];
-                    }
-
-                    C[i, j] = sum;
+                    pRowM2 -= N;
                 }
             }
 
@@ -111,63 +118,85 @@ namespace Problem
         /*                   Helper Functions                    */
 
         // calculating a smaller matrix for divide step
-        static private int[,] GetSubmatrix(int[,] M, int row, int col, int size)
+        unsafe static private int[,] GetSubmatrix(int[,] M, int row, int col, int size)
         {
             int[,] submatrix = new int[size, size];
 
-            Parallel.For(0, size, i =>
+            fixed (int* pM = M, pSub = submatrix)
             {
-                for (int j = 0; j < size; j++)
+                int* pRowM = pM + row * M.GetLength(1) + col;
+                int* pRowSub = pSub;
+
+                for (int i = 0; i < size; i++, pRowM += M.GetLength(1), pRowSub += size)
                 {
-                    submatrix[i, j] = M[row + i, col + j];
+                    for (int j = 0; j < size; j++)
+                    {
+                        pRowSub[j] = pRowM[j];
+                    }
                 }
-            });
+            }
 
             return submatrix;
         }
 
         // Calculate matrix for combine step
-        static private void SetSubmatrix(int[,] M, int row, int col, int[,] submatrix)
+        static unsafe private void SetSubmatrix(int[,] M, int row, int col, int[,] submatrix)
         {
             int size = submatrix.GetLength(0);
 
-            Parallel.For(0, size, i =>
+            fixed (int* pM = M, pSub = submatrix)
             {
-                for (int j = 0; j < size; j++)
+                int* pRowM = pM + row * M.GetLength(1) + col;
+                int* pRowSub = pSub;
+
+                for (int i = 0; i < size; i++, pRowM += M.GetLength(1), pRowSub += size)
                 {
-                    M[row + i, col + j] = submatrix[i, j];
+                    for (int j = 0; j < size; j++)
+                    {
+                        pRowM[j] = pRowSub[j];
+                    }
                 }
-            });
+            }
         }
 
         // Add 2 matrices, still faster than multiplication
-        static private int[,] Add(int[,] M1, int[,] M2, int N)
+        static unsafe private int[,] Add(int[,] M1, int[,] M2, int N)
         {
             int[,] result = new int[N, N];
 
-            Parallel.For(0, N, i =>
+            fixed (int* pM1 = M1, pM2 = M2, pRes = result)
             {
-                for (int j = 0; j < N; j++)
+                int* pRowM1 = pM1, pRowM2 = pM2, pRowRes = pRes;
+
+                for (int i = 0; i < N; i++, pRowM1 += N, pRowM2 += N, pRowRes += N)
                 {
-                    result[i, j] = M1[i, j] + M2[i, j];
+                    for (int j = 0; j < N; j++)
+                    {
+                        pRowRes[j] = pRowM1[j] + pRowM2[j];
+                    }
                 }
-            });
+            }
 
             return result;
         }
 
         // Subtract 2 matrices, still faster than multiplication
-        static private int[,] Subtract(int[,] M1, int[,] M2, int N)
+        static unsafe private int[,] Subtract(int[,] M1, int[,] M2, int N)
         {
             int[,] result = new int[N, N];
 
-            Parallel.For(0, N, i =>
+            fixed (int* pM1 = M1, pM2 = M2, pRes = result)
             {
-                for (int j = 0; j < N; j++)
+                int* pRowM1 = pM1, pRowM2 = pM2, pRowRes = pRes;
+
+                for (int i = 0; i < N; i++, pRowM1 += N, pRowM2 += N, pRowRes += N)
                 {
-                    result[i, j] = M1[i, j] - M2[i, j];
+                    for (int j = 0; j < N; j++)
+                    {
+                        pRowRes[j] = pRowM1[j] - pRowM2[j];
+                    }
                 }
-            });
+            }
 
             return result;
         }
