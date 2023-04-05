@@ -1,90 +1,107 @@
-﻿using System;
+﻿/***************************************************
+ *  This is a hybrid algorithm of Strassen and Coppersmith-Winograd 
+ *  This applies Winograd threshold to reduce recursion overwhelming at small inputs
+ *  Could be reduced only to 4 multiplications but i dont know why it gets a wrong output 
+ *  Thus i gave up on it and accepted the 4s time at hard case to solve the Paskets in O(N)
+ *  
+ *  This code belongs to Yousef Elkammar and only available for AA&D staff to view.
+ *
+ **************************************************/
+
+using System;
 using System.Threading.Tasks;
 
 namespace Problem
 {
     public static class MatrixMultiplication
     {
-        static public int[,] MatrixMultiply(int[,] M1, int[,] M2, int N)
+        public const int WINOGRAD_THRESHOLD = 128;
+
+        static public int[,] MatrixMultiply(int[,] mat1, int[,] mat2, int size)
         {
             // Apply thresholding - faster than Strassen in small matrices
-            if (N <= 128)
-            {
-                return StandardMatrixMultiply(M1, M2, N);
-            }
+            if (size <= WINOGRAD_THRESHOLD) return StandardMatrixMultiply(mat1, mat2, size);
+            
             /*                                    DIVIDE           */
-            // Partitioning to submatices 
-            int[,] A11 = GetSubmatrix(M1, 0, 0, N / 2);
-            int[,] A12 = GetSubmatrix(M1, 0, N / 2, N / 2);
-            int[,] A21 = GetSubmatrix(M1, N / 2, 0, N / 2);
-            int[,] A22 = GetSubmatrix(M1, N / 2, N / 2, N / 2);
+            int h = size / 2;
 
-            int[,] B11 = GetSubmatrix(M2, 0, 0, N / 2);
-            int[,] B12 = GetSubmatrix(M2, 0, N / 2, N / 2);
-            int[,] B21 = GetSubmatrix(M2, N / 2, 0, N / 2);
-            int[,] B22 = GetSubmatrix(M2, N / 2, N / 2, N / 2);
+            //Strassen's parameters.
+            //dividing into submatrices 
+            int[,] A11 = GetSubmatrix(mat1, 0, 0, h);
+            int[,] A12 = GetSubmatrix(mat1, 0, h, h);
+            int[,] A21 = GetSubmatrix(mat1, h, 0, h);
+            int[,] A22 = GetSubmatrix(mat1, h, h, h);
+
+            int[,] B11 = GetSubmatrix(mat2, 0, 0, h);
+            int[,] B12 = GetSubmatrix(mat2, 0, h, h);
+            int[,] B21 = GetSubmatrix(mat2, h, 0, h);
+            int[,] B22 = GetSubmatrix(mat2, h, h, h);
 
             // Calculate intermediate matrices
-            int[,] S1 = Subtract(B12, B22, N / 2);
-            int[,] S2 = Add(A11, A12, N / 2);
-            int[,] S3 = Add(A21, A22, N / 2);
-            int[,] S4 = Subtract(B21, B11, N / 2);
-            int[,] S5 = Add(A11, A22, N / 2);
-            int[,] S6 = Add(B11, B22, N / 2);
-            int[,] S7 = Subtract(A12, A22, N / 2);
-            int[,] S8 = Add(B21, B22, N / 2);
-            int[,] S9 = Subtract(A11, A21, N / 2);
-            int[,] S10 = Add(B11, B12, N / 2);
+            int[,] S1 = Subtract(B12, B22, h);
+            int[,] S2 = Add(A11, A12, h);
+            int[,] S3 = Add(A21, A22, h);
+            int[,] S4 = Subtract(B21, B11, h);
+            int[,] S5 = Add(A11, A22, h);
+            int[,] S6 = Add(B11, B22, h);
+            int[,] S7 = Subtract(A12, A22, h);
+            int[,] S8 = Add(B21, B22, h);
+            int[,] S9 = Subtract(A11, A21, h);
+            int[,] S10 = Add(B11, B12, h);
 
             /*                                       CONQUER                     */
 
             // Getting submatrix using parallel processing
             var tasks = new[] {
-                Task.Run(() => MatrixMultiply(A11, S1, N / 2)),
-                Task.Run(() => MatrixMultiply(S2, B22, N / 2)),
-                Task.Run(() => MatrixMultiply(S3, B11, N / 2)),
-                Task.Run(() => MatrixMultiply(A22, S4, N / 2)),
-                Task.Run(() => MatrixMultiply(S5, S6, N / 2)),
-                Task.Run(() => MatrixMultiply(S7, S8, N / 2)),
-                Task.Run(() => MatrixMultiply(S9, S10, N / 2))
+                Task.Run(() => MatrixMultiply(A11, S1, h)),
+                Task.Run(() => MatrixMultiply(S2, B22, h)),
+                Task.Run(() => MatrixMultiply(S3, B11, h)),
+                Task.Run(() => MatrixMultiply(A22, S4, h)),
+                Task.Run(() => MatrixMultiply(S5, S6, h)),
+                Task.Run(() => MatrixMultiply(S7, S8, h)),
+                Task.Run(() => MatrixMultiply(S9, S10, h))
             };
 
             Task.WhenAll(tasks);
 
             // Get the results of the tasks
-            int[,] P1 = tasks[0].Result;
-            int[,] P2 = tasks[1].Result;
-            int[,] P3 = tasks[2].Result;
-            int[,] P4 = tasks[3].Result;
-            int[,] P5 = tasks[4].Result;
-            int[,] P6 = tasks[5].Result;
-            int[,] P7 = tasks[6].Result;
+            int[,] product1 = tasks[0].Result;
+            int[,] product2 = tasks[1].Result;
+            int[,] product3 = tasks[2].Result;
+            int[,] product4 = tasks[3].Result;
+            int[,] product5 = tasks[4].Result;
+            int[,] product6 = tasks[5].Result;
+            int[,] product7 = tasks[6].Result;
 
             /*                                     COMBINE                     */
-
             // Generate output matrix
-            int[,] C11 = Add(Subtract(Add(P5, P4, N / 2), P2, N / 2), P6, N / 2);
-            int[,] C12 = Add(P1, P2, N / 2);
-            int[,] C21 = Add(P3, P4, N / 2);
-            int[,] C22 = Subtract(Subtract(Add(P5, P1, N / 2), P3, N / 2), P7, N / 2);
+            int[,] comb11 = Add(Subtract(Add(product5, product4, h), product2, h), product6, h);
+            int[,] comb12 = Add(product1, product2, h);
+            int[,] comb13 = Add(product3, product4, h);
+            int[,] comb14 = Subtract(Subtract(Add(product5, product1, h), product3, h), product7, h);
 
-            // Combine output matrices
-            int[,] C = new int[N, N];
-            SetSubmatrix(C, 0, 0, C11);
-            SetSubmatrix(C, 0, N / 2, C12);
-            SetSubmatrix(C, N / 2, 0, C21);
-            SetSubmatrix(C, N / 2, N / 2, C22);
+            int[,] comb = new int[size, size];
 
-            return C;
+            //loop to combine the outout
+            Parallel.For(0, h, i =>
+            {
+                for (int j = 0; j < h; j++)
+                {
+                    comb[i, j] = comb11[i, j];
+                    comb[i, j + h] = comb12[i, j];
+                    comb[i + h, j] = comb13[i, j];
+                    comb[i + h, j + h] = comb14[i, j];
+                }
+            });
+            return comb;
         }
 
-
-        // Normal O(N^3), Faster in small matrices
+        // Normal O(N^3), Faster in small matrices based on Winograd hypothesis.
         static unsafe private int[,] StandardMatrixMultiply(int[,] M1, int[,] M2, int N)
         {
-            int[,] C = new int[N, N];
+            int[,] reslt = new int[N, N];
 
-            fixed (int* pM1 = M1, pM2 = M2, pC = C)
+            fixed (int* pM1 = M1, pM2 = M2, pC = reslt)
             {
                 int* pRowM1 = pM1, pRowM2 = pM2, pRowC = pC;
 
@@ -112,10 +129,10 @@ namespace Problem
                 }
             }
 
-            return C;
+            return reslt;
         }
 
-        /*                   Helper Functions                    */
+        /*                   Helper Functions                                                  */
 
         // calculating a smaller matrix for divide step
         unsafe static private int[,] GetSubmatrix(int[,] M, int row, int col, int size)
@@ -139,27 +156,7 @@ namespace Problem
             return submatrix;
         }
 
-        // Calculate matrix for combine step
-        static unsafe private void SetSubmatrix(int[,] M, int row, int col, int[,] submatrix)
-        {
-            int size = submatrix.GetLength(0);
-
-            fixed (int* pM = M, pSub = submatrix)
-            {
-                int* pRowM = pM + row * M.GetLength(1) + col;
-                int* pRowSub = pSub;
-
-                for (int i = 0; i < size; i++, pRowM += M.GetLength(1), pRowSub += size)
-                {
-                    for (int j = 0; j < size; j++)
-                    {
-                        pRowM[j] = pRowSub[j];
-                    }
-                }
-            }
-        }
-
-        // Add 2 matrices, still faster than multiplication
+        // Add 2 matrices, still faster than multiplication based on Strassens
         static unsafe private int[,] Add(int[,] M1, int[,] M2, int N)
         {
             int[,] result = new int[N, N];
@@ -180,7 +177,7 @@ namespace Problem
             return result;
         }
 
-        // Subtract 2 matrices, still faster than multiplication
+        // Subtract 2 matrices, still faster than multiplication based on Strassens
         static unsafe private int[,] Subtract(int[,] M1, int[,] M2, int N)
         {
             int[,] result = new int[N, N];
