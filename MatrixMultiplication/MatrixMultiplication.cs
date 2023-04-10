@@ -19,96 +19,87 @@ namespace Problem
 
         static public int[,] MatrixMultiply(int[,] mat1, int[,] mat2, int size)
         {
-            // Apply thresholding - faster than Strassen in small matrices
-            if (size <= WINOGRAD_THRESHOLD) return StandardMatrixMultiply(mat1, mat2, size);
+            // Apply thresholding - faster than Strassen in small matrices based on Winograd hypothesis due to High Constant factor
+            if (size <= WINOGRAD_THRESHOLD) return SMM(mat1, mat2, size);
             
-            /*                                    DIVIDE           */
+            /*                                    DIVIDE                                  */
             int h = size / 2;
 
             //Strassen's parameters.
             //dividing into submatrices 
-            int[,] A11 = GetSubmatrix(mat1, 0, 0, h);
-            int[,] A12 = GetSubmatrix(mat1, 0, h, h);
-            int[,] A21 = GetSubmatrix(mat1, h, 0, h);
-            int[,] A22 = GetSubmatrix(mat1, h, h, h);
+            // processing each mat on its own for better locality
+            int[,] topLeft = DM(mat1, 0, 0, h);
+            int[,] botLeft = DM(mat1, h, 0, h);
 
-            int[,] B11 = GetSubmatrix(mat2, 0, 0, h);
-            int[,] B12 = GetSubmatrix(mat2, 0, h, h);
-            int[,] B21 = GetSubmatrix(mat2, h, 0, h);
-            int[,] B22 = GetSubmatrix(mat2, h, h, h);
+            int[,] topRight = DM(mat1, 0, h, h);
+            int[,] botRight = DM(mat1, h, h, h);
 
-            // Calculate intermediate matrices
-            int[,] S1 = Subtract(B12, B22, h);
-            int[,] S2 = Add(A11, A12, h);
-            int[,] S3 = Add(A21, A22, h);
-            int[,] S4 = Subtract(B21, B11, h);
-            int[,] S5 = Add(A11, A22, h);
-            int[,] S6 = Add(B11, B22, h);
-            int[,] S7 = Subtract(A12, A22, h);
-            int[,] S8 = Add(B21, B22, h);
-            int[,] S9 = Subtract(A11, A21, h);
-            int[,] S10 = Add(B11, B12, h);
+            int[,] topLeft2 = DM(mat2, 0, 0, h);
+            int[,] botLeft2 = DM(mat2, h, 0, h);
+            
+            int[,] topRight2 = DM(mat2, 0, h, h);
+            int[,] botRight2 = DM(mat2, h, h, h);
+
 
             /*                                       CONQUER                     */
-
-            // Getting submatrix using parallel processing
             var tasks = new[] {
-                Task.Run(() => MatrixMultiply(A11, S1, h)),
-                Task.Run(() => MatrixMultiply(S2, B22, h)),
-                Task.Run(() => MatrixMultiply(S3, B11, h)),
-                Task.Run(() => MatrixMultiply(A22, S4, h)),
-                Task.Run(() => MatrixMultiply(S5, S6, h)),
-                Task.Run(() => MatrixMultiply(S7, S8, h)),
-                Task.Run(() => MatrixMultiply(S9, S10, h))
+                Task.Run(() => MatrixMultiply(topLeft, SM(topRight2, botRight2, h), h)),
+                Task.Run(() => MatrixMultiply(AM(topLeft, topRight, h), botRight2, h)),
+                Task.Run(() => MatrixMultiply(AM(botLeft, botRight, h), topLeft2, h)),
+                Task.Run(() => MatrixMultiply(botRight, SM(botLeft2, topLeft2, h), h)),
+
+                Task.Run(() => MatrixMultiply(AM(topLeft, botRight, h), AM(topLeft2, botRight2, h), h)),
+                Task.Run(() => MatrixMultiply(SM(topRight, botRight, h), AM(botLeft2, botRight2, h), h)),
+                Task.Run(() => MatrixMultiply(SM(topLeft, botLeft, h),  AM(topLeft2, topRight2, h), h))
             };
 
             Task.WhenAll(tasks);
 
-            // Get the results of the tasks
-            int[,] product1 = tasks[0].Result;
-            int[,] product2 = tasks[1].Result;
-            int[,] product3 = tasks[2].Result;
-            int[,] product4 = tasks[3].Result;
-            int[,] product5 = tasks[4].Result;
-            int[,] product6 = tasks[5].Result;
-            int[,] product7 = tasks[6].Result;
 
             /*                                     COMBINE                     */
-            // Generate output matrix
-            int[,] comb11 = Add(Subtract(Add(product5, product4, h), product2, h), product6, h);
-            int[,] comb12 = Add(product1, product2, h);
-            int[,] comb13 = Add(product3, product4, h);
-            int[,] comb14 = Subtract(Subtract(Add(product5, product1, h), product3, h), product7, h);
+            int[,] resTopLeft = AM(SM(AM(tasks[4].Result, tasks[3].Result, h), tasks[1].Result, h), tasks[5].Result, h);
+            int[,] resBotLeft = AM(tasks[2].Result, tasks[3].Result, h);
 
-            int[,] comb = new int[size, size];
+            int[,] resBotRight = SM(SM(AM(tasks[4].Result, tasks[0].Result, h), tasks[2].Result, h), tasks[6].Result, h);           
+            int[,] resTopRight = AM(tasks[0].Result, tasks[1].Result, h);
+
+
+            int[,] finalMat = new int[size, size];
 
             //loop to combine the outout
             Parallel.For(0, h, i =>
             {
                 for (int j = 0; j < h; j++)
                 {
-                    comb[i, j] = comb11[i, j];
-                    comb[i, j + h] = comb12[i, j];
-                    comb[i + h, j] = comb13[i, j];
-                    comb[i + h, j + h] = comb14[i, j];
+                    finalMat[i, j] = resTopLeft[i, j];
+                    finalMat[i, j + h] = resTopRight[i, j];
+                    finalMat[i + h, j] = resBotLeft[i, j];
+                    finalMat[i + h, j + h] = resBotRight[i, j];
                 }
             });
-            return comb;
+            return finalMat;
         }
 
+
+        /*                   Helpers                                                  */
+
         // Normal O(N^3), Faster in small matrices based on Winograd hypothesis.
-        static unsafe private int[,] StandardMatrixMultiply(int[,] M1, int[,] M2, int N)
+        static unsafe private int[,] SMM(int[,] M1, int[,] M2, int N)
         {
             int[,] reslt = new int[N, N];
 
+            //unsafe pointers
             fixed (int* pM1 = M1, pM2 = M2, pC = reslt)
             {
+
                 int* pRowM1 = pM1, pRowM2 = pM2, pRowC = pC;
 
                 for (int i = 0; i < N; i++, pRowM1 += N, pRowC += N)
                 {
                     for (int j = 0; j < N; j++, pRowM2++)
                     {
+
+                        //Unrolled loops, for better cache localization
                         int sum = 0;
                         int k = 0;
 
@@ -132,13 +123,14 @@ namespace Problem
             return reslt;
         }
 
-        /*                   Helper Functions                                                  */
 
         // calculating a smaller matrix for divide step
-        unsafe static private int[,] GetSubmatrix(int[,] M, int row, int col, int size)
+        unsafe static private int[,] DM(int[,] M, int row, int col, int size)
         {
+            //res
             int[,] submatrix = new int[size, size];
 
+            //unsafe divide with pointers
             fixed (int* pM = M, pSub = submatrix)
             {
                 int* pRowM = pM + row * M.GetLength(1) + col;
@@ -156,8 +148,8 @@ namespace Problem
             return submatrix;
         }
 
-        // Add 2 matrices, still faster than multiplication based on Strassens
-        static unsafe private int[,] Add(int[,] M1, int[,] M2, int N)
+        // Add 2 matrices, O(N^2)
+        static unsafe private int[,] AM(int[,] M1, int[,] M2, int N)
         {
             int[,] result = new int[N, N];
 
@@ -178,7 +170,7 @@ namespace Problem
         }
 
         // Subtract 2 matrices, still faster than multiplication based on Strassens
-        static unsafe private int[,] Subtract(int[,] M1, int[,] M2, int N)
+        static unsafe private int[,] SM(int[,] M1, int[,] M2, int N)
         {
             int[,] result = new int[N, N];
 
